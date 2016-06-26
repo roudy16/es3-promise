@@ -20,7 +20,7 @@ module.exports = (function(global) {
 		console.log("\n")
 	}
 
-	function clean(enhancedPromise, enhancedState) {
+	function cleanThen(enhancedPromise, enhancedState) {
 
 		var promise = enhancedPromise.promise;
 
@@ -98,11 +98,21 @@ module.exports = (function(global) {
 
 							result = callback.apply(undefined, [ data ]);
 
-							resolveFn(nextEnhancedPromise)(result); 
+							// 2.3.1: If `promise` and `x` refer to the same 
+							// object, reject `promise` with a `TypeError' as 
+							// the reason.
+							if (nextEnhancedPromise.promise === result) {
+								rejectFn(nextEnhancedPromise)(new TypeError(
+									'The result of a then execution cannot be the promise itself.'
+								));
+							}
+							else {
+								resolveFn(nextEnhancedPromise)(result); 
+							}
 
 						} catch(err) {
 
-							rejectFn(nextEnhancedPromise)(err);
+							result = rejectFn(nextEnhancedPromise)(err);
 						}
 
 					} else {
@@ -152,12 +162,12 @@ module.exports = (function(global) {
 		if (isFulfilled(promise)) {
 			// execute all the onFulfilled callbacks register within the
 			// various then calls
-			clean(enhancedPromise, enhancedState[FULFILLED]);
+			cleanThen(enhancedPromise, enhancedState[FULFILLED]);
 
 		} else if (isRejected(promise)) {
 			// execute all the onRejected callbacks register within the
 			// various then calls	
-			clean(enhancedPromise, enhancedState[REJECTED]);
+			cleanThen(enhancedPromise, enhancedState[REJECTED]);
 
 		}
 
@@ -171,7 +181,7 @@ module.exports = (function(global) {
 			if (isPending(promise)) {
 				promise.state = FULFILLED;
 				promise.value = value;
-				clean(enhancedPromise, enhancedState[FULFILLED]);
+				cleanThen(enhancedPromise, enhancedState[FULFILLED]);
 			}
 		};
 	}
@@ -184,7 +194,7 @@ module.exports = (function(global) {
 			if (isPending(promise)) {
 				promise.state = REJECTED;
 				promise.reason = reason;
-				clean(enhancedPromise, enhancedState[REJECTED]);
+				cleanThen(enhancedPromise, enhancedState[REJECTED]);
 			}
 		};
 	}
@@ -271,10 +281,10 @@ promise.id = enhancedPromise.id;
 	function Promise(executor) {
 
 		if (!(this instanceof Promise)) 
-			throw new Error('TypeError: Not enough arguments to Promise.');
+			throw new TypeError('Not enough arguments to Promise.');
 
 		if (!executor || typeof executor !== 'function')
-			throw new Error('TypeError: Argument 1 of Promise.constructor is not an object.');
+			throw new TypeError('Argument 1 of Promise.constructor is not an object.');
 
 		var enhancedPromise = createEnhancedPromise(executor);
 		return enhancedPromise.promise;
