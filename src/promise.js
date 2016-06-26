@@ -20,7 +20,6 @@ module.exports = (function(global) {
 		console.log("\n")
 	}
 
-
 	function clean(enhancedPromise, enhancedState) {
 
 		var promise = enhancedPromise.promise;
