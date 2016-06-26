@@ -11,9 +11,20 @@ module.exports = (function(global) {
 	function isFulfilled(promise) { return promise.state === FULFILLED; }
 	function isRejected(promise) { return promise.state === REJECTED; }
 
+	function log(label, obj) {
+		console.log("--------------------------------")
+		console.log(label + "..." + "\n")
+		for (var key in obj) 
+			if (obj.hasOwnProperty(key))
+				console.log(key, obj[key])
+		console.log("\n")
+	}
+
+
 	function clean(enhancedPromise, enhancedState) {
 
 		var promise = enhancedPromise.promise;
+
 		// if the promise is not pending
 		// then it's either resolved or rejected
 		if (enhancedState.isStateFn(promise)) {
@@ -37,31 +48,31 @@ module.exports = (function(global) {
 				// the data of the promise (value or reason)
 				var data = promise[ enhancedState.dataName ];
 
-				// 2.2.1: Both `onFulfilled` and `onRejected` are optional 
-				// arguments.
-				// 2.2.1.1: If `onFulfilled` is not a function, it must be 
-				// ignored.
-				// 2.2.1.2: If `onRejected` is not a function, it must be 
-				// ignored.
+				// 2.2.4: `onFulfilled` or `onRejected` must not be 
+				// called until the execution context stack contains 
+				// only platform code.
 
-				if (isFn(callback)) {
+				// execute the resolve / reject on a new execution context
+				// to ensure that the execution is performed with the correct
+				// data, use an immediately invoked function call and pass
+				// to it the data that will be used in a future execution
+				// context
+				(function(callback, data, nextEnhancedPromise) {
 
-					
+					setTimeout(function() {
 
-					// 2.2.4 + 2.2.2.3: it must not be called more than once.
-					// when multiple `then` calls are made, spaced apart in time
-
-					// when doing the timeout, ensure that the callback 
-					// is the one that is invoked before the timeout
-					// pass the callback as argument of an immediately invoked
-					// function call so that it is not modified by subsequent 
-					// callbacks
-					(function(callback) {
+					// 2.2.1: Both `onFulfilled` and `onRejected` are optional 
+					// arguments.
+					// 2.2.1.1: If `onFulfilled` is not a function, it must be 
+					// ignored.
+					// 2.2.1.2: If `onRejected` is not a function, it must be 
+					// ignored.
+					if (isFn(callback)) {
 
 						// 2.2.4: `onFulfilled` or `onRejected` must not be 
 						// called until the execution context stack contains 
 						// only platform code.
-						setTimeout(function() {
+						//setTimeout(function() {
 
 						// 2.2.2: If `onFulfilled` is a function
 						// 2.2.2.1: it must be called after `promise` is 
@@ -76,7 +87,6 @@ module.exports = (function(global) {
         				// 2.2.3.2: it must not be called before `promise` 
         				// is rejected
         				// 2.2.3.3: it must not be called more than once.
-						// be careful here, callback can be asynchronous
 
 						// 2.2.5 `onFulfilled` and `onRejected` must be 
 						// called as functions (i.e. with no `this` value).
@@ -84,19 +94,27 @@ module.exports = (function(global) {
 
 						// 2.2.6.1 : multiple fulfillment handlers, one of which throws
 						// need a try catch block
+						var result;
 						try {
-							callback.apply(undefined, [ data ]);
-						} catch(err) {}
-						
-						}, 0);
 
-					})(callback);
+							result = callback.apply(undefined, [ data ]);
 
-				} else {
-					// resolve / reject the nextEnhancedPromise
-					// with the value / reason of the invoking promise
-					enhancedState.execFn(nextEnhancedPromise)(data);
-				}
+							resolveFn(nextEnhancedPromise)(result); 
+
+						} catch(err) {
+
+							rejectFn(nextEnhancedPromise)(err);
+						}
+
+					} else {
+						// resolve / reject the nextEnhancedPromise
+						// with the value / reason of the invoking promise
+						enhancedState.execFn(nextEnhancedPromise)(data);
+					}
+
+					}, 0);
+
+				})(callback, data, nextEnhancedPromise)
 
 			}
 			// clear the other stack
@@ -111,11 +129,6 @@ module.exports = (function(global) {
 
 		var promise = enhancedPromise.promise;
 
-		// update the promise property in the map - its state may have 
-		// changed
-		//enhancedPromise.promise = promise;
-
-
 		// 2.2.6.1: If/when `promise` is fulfilled, all respective `onFulfilled` 
 		// callbacks must execute in the order of their originating calls to `then`
 
@@ -125,7 +138,6 @@ module.exports = (function(global) {
 			nextEnhancedPromise: nextEnhancedPromise,
 			callback: onFulfillment
 		});
-
 
 		// 2.2.6.2: If/when `promise` is rejected, all respective `onRejected` 
 		// callbacks must execute in the order of their originating calls to `then`
@@ -184,6 +196,7 @@ module.exports = (function(global) {
 		otherState: REJECTED,
 		isStateFn: isFulfilled,
 		execFn: resolveFn,
+		otherExecFn: rejectFn,
 		dataName: 'value'
 	};
 	enhancedState[REJECTED] = {
@@ -191,8 +204,11 @@ module.exports = (function(global) {
 		otherState: FULFILLED,
 		isStateFn: isRejected,
 		execFn: rejectFn,
+		otherExecFn: resolveFn,
 		dataName: 'reason'
 	}
+
+	var id = 0;
 
 	function enhancePromise(promise, resolve, reject) {
 
@@ -206,15 +222,16 @@ module.exports = (function(global) {
 			// then stack { onFulfillment, nextEnhancedPromise returned by then }
 			onfulfilled : [],
 			// then stack { onRejection, nextEnhancedPromise returned by then }
-			onrejected: []
+			onrejected: [],
+			// incremental id
+			id: ++id
 		};
 
 	}
 
 	function then(enhancedPromise, onFulfillment, onRejection) {
 
-		var nextPromise = new Promise(emptyFn);
-		var nextEnhancedPromise = enhancePromise(nextPromise);
+		var nextEnhancedPromise = createEnhancedPromise(emptyFn);
 
 		// 2.2.1: Both `onFulfilled` and `onRejected` are optional arguments.
 		// 2.2.1.1: If `onFulfilled` is not a function, it must be ignored.
@@ -223,9 +240,34 @@ module.exports = (function(global) {
 
 		// 2.2.7: `then` must return a promise: 
 		// `promise2 = promise1.then(onFulfilled, onRejected)`
-		return nextPromise;
+		//return nextPromise;
+		return nextEnhancedPromise.promise;
 
 	}
+
+	function createEnhancedPromise(executor) {
+
+		var promise = {
+			state: PENDING
+		};
+
+		var resolve = undefined;
+		var reject = undefined;
+
+		var enhancedPromise = enhancePromise(promise, resolve, reject);
+promise.id = enhancedPromise.id;
+		resolve = resolveFn(enhancedPromise);
+		reject = rejectFn(enhancedPromise);
+
+		promise.then = function(onFulfillment, onRejection) {
+			return then(enhancedPromise, onFulfillment, onRejection);
+		};
+
+		executor.apply(undefined, [ resolve, reject ]);		
+
+		return enhancedPromise;
+	}
+
 
 	function Promise(executor) {
 
@@ -235,21 +277,8 @@ module.exports = (function(global) {
 		if (!executor || typeof executor !== 'function')
 			throw new Error('TypeError: Argument 1 of Promise.constructor is not an object.');
 
-		this.state = PENDING;
-
-		var resolve = undefined;
-		var reject = undefined;
-		var promise = this;
-		var enhancedPromise = enhancePromise(this, resolve, reject);
-
-		resolve = resolveFn(enhancedPromise);
-		reject = rejectFn(enhancedPromise);
-
-		this.then = function(onFulfillment, onRejection) {
-			return then(enhancedPromise, onFulfillment, onRejection);
-		};
-
-		executor.apply(undefined, [ resolve, reject ]);
+		var enhancedPromise = createEnhancedPromise(executor);
+		return enhancedPromise.promise;
 
 	}
 
