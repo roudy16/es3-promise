@@ -93,26 +93,61 @@ module.exports = (function(global) {
 
 						// 2.2.6.1 : multiple fulfillment handlers, one of which throws
 						// need a try catch block
-						var result;
+						var x;
 						try {
 
-							result = callback.apply(undefined, [ data ]);
+							x = callback.apply(undefined, [ data ]);
 
 							// 2.3.1: If `promise` and `x` refer to the same 
 							// object, reject `promise` with a `TypeError' as 
 							// the reason.
-							if (nextEnhancedPromise.promise === result) {
+							if (nextEnhancedPromise.promise === x) {
 								rejectFn(nextEnhancedPromise)(new TypeError(
 									'The result of a then execution cannot be the promise itself.'
 								));
+								return;
 							}
-							else {
-								resolveFn(nextEnhancedPromise)(result); 
+
+							// 2.3.2: If `x` is a promise, adopt its state
+							if (x instanceof Promise) {
+								// 2.3.2.1: If `x` is pending, `promise` must 
+								// remain pending until `x` is fulfilled or 
+								// rejected.
+								x.then(
+									// 2.3.2.2: If/when `x` is fulfilled, 
+									// fulfill `promise` with the same value.
+									function(value) {
+										resolveFn(nextEnhancedPromise)(value)
+									}, 
+									// 2.3.2.3: If/when `x` is rejected, 
+									// reject `promise` with the same reason.
+									function(reason) {
+										rejectFn(nextEnhancedPromise)(reason);
+									}
+								);
+								return;
 							}
+
+							if (x.then) {
+								console.log(x)
+								console.log(x.then.toString())
+								x.then.apply(x, [
+									function(value) {
+										console.log(value)
+										resolveFn(nextEnhancedPromise)(value)
+									}, 
+									function(reason) {
+										rejectFn(nextEnhancedPromise)(reason);
+									}
+								]);
+								return;
+							}
+							
+							resolveFn(nextEnhancedPromise)(x); 
 
 						} catch(err) {
 
-							result = rejectFn(nextEnhancedPromise)(err);
+							rejectFn(nextEnhancedPromise)(err);
 						}
 
 					} else {
@@ -240,17 +275,16 @@ module.exports = (function(global) {
 
 	function then(enhancedPromise, onFulfillment, onRejection) {
 
-		var nextEnhancedPromise = createEnhancedPromise(emptyFn);
+		var nextPromise = new Promise(emptyFn);
 
 		// 2.2.1: Both `onFulfilled` and `onRejected` are optional arguments.
 		// 2.2.1.1: If `onFulfilled` is not a function, it must be ignored.
 		// 2.2.1.2: If `onRejected` is not a function, it must be ignored.
-		registerThen(enhancedPromise, nextEnhancedPromise, onFulfillment, onRejection);
+		registerThen(enhancedPromise, nextPromise.enhancedPromise, onFulfillment, onRejection);
 
 		// 2.2.7: `then` must return a promise: 
 		// `promise2 = promise1.then(onFulfilled, onRejected)`
-		//return nextPromise;
-		return nextEnhancedPromise.promise;
+		return nextPromise;
 
 	}
 
@@ -286,8 +320,17 @@ promise.id = enhancedPromise.id;
 		if (!executor || typeof executor !== 'function')
 			throw new TypeError('Argument 1 of Promise.constructor is not an object.');
 
-		var enhancedPromise = createEnhancedPromise(executor);
-		return enhancedPromise.promise;
+		this.state = PENDING;
+
+		var resolve = undefined;
+		var reject = undefined;
+
+		var enhancedPromise = this.enhancedPromise = enhancePromise(this, resolve, reject);
+this.id = enhancedPromise.id;
+		resolve = resolveFn(enhancedPromise);
+		reject = rejectFn(enhancedPromise);
+
+		executor.apply(undefined, [ resolve, reject ]);		
 
 	}
 
@@ -308,7 +351,9 @@ promise.id = enhancedPromise.id;
 	Promise.resolve = resolve;
 	Promise.reject = reject;
 
-	Promise.prototype.then = then;
+	Promise.prototype.then = function(onFulfillment, onRejection) {
+		return then(this.enhancedPromise, onFulfillment, onRejection);
+	}
 
 	return { 
 		Promise: Promise
