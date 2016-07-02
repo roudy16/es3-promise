@@ -1,4 +1,4 @@
-module.exports = (function(global) {
+;(function() {
 
 	var PENDING = 'pending';
 	var FULFILLED = 'fulfilled';
@@ -380,4 +380,4 @@ module.exports = (function(global) {
 		Promise: Promise
 	};
 
-})(global);
+})();
