@@ -289,39 +289,32 @@ module.exports = (function(global) {
 
 	}
 
-	function then(enhancedPromise, onFulfillment, onRejection) {
+	var registry = (function() {
+		
+		var records = [];
 
-		var nextPromise = new Promise(emptyFn);
+		function add(promise, enhancedPromise) {
+			records.push({
+				promise: promise,
+				enhancedPromise: enhancedPromise
+			});
+		}
 
-		// 2.2.1: Both `onFulfilled` and `onRejected` are optional arguments.
-		// 2.2.1.1: If `onFulfilled` is not a function, it must be ignored.
-		// 2.2.1.2: If `onRejected` is not a function, it must be ignored.
-		registerThen(enhancedPromise, nextPromise.enhancedPromise, onFulfillment, onRejection);
+		function getEnhanced(promise) {
+			for(var i = 0; i < records.length; i++) {
+				var record = records[i];
+				if(record.promise === promise) {
+					return record.enhancedPromise;
+				}
+			}
+		}
 
-		// 2.2.7: `then` must return a promise: 
-		// `promise2 = promise1.then(onFulfilled, onRejected)`
-		return nextPromise;
+		return {
+			add: add,
+			getEnhanced: getEnhanced
+		} 
 
-	}
-
-	function createEnhancedPromise(executor) {
-
-		var promise = {
-			state: PENDING
-		};
-
-		var resolve = undefined;
-		var reject = undefined;
-
-		var enhancedPromise = enhancePromise(promise, resolve, reject);
-
-		resolve = resolveFn(enhancedPromise);
-		reject = rejectFn(enhancedPromise);
-
-		executor.apply(undefined, [ resolve, reject ]);		
-
-		return enhancedPromise;
-	}
+	})();
 
 	function Promise(executor) {
 
@@ -336,12 +329,29 @@ module.exports = (function(global) {
 		var resolve = undefined;
 		var reject = undefined;
 
-		var enhancedPromise = this.enhancedPromise = enhancePromise(this, resolve, reject);
+		var enhancedPromise = enhancePromise(this, resolve, reject);
+
+		registry.add(this, enhancedPromise);
 
 		resolve = resolveFn(enhancedPromise);
 		reject = rejectFn(enhancedPromise);
 
 		executor.apply(undefined, [ resolve, reject ]);		
+
+	}
+
+	function then(enhancedPromise, onFulfillment, onRejection) {
+
+		var nextPromise = new Promise(emptyFn);
+
+		// 2.2.1: Both `onFulfilled` and `onRejected` are optional arguments.
+		// 2.2.1.1: If `onFulfilled` is not a function, it must be ignored.
+		// 2.2.1.2: If `onRejected` is not a function, it must be ignored.
+		registerThen(enhancedPromise, registry.getEnhanced(nextPromise), onFulfillment, onRejection);
+
+		// 2.2.7: `then` must return a promise: 
+		// `promise2 = promise1.then(onFulfilled, onRejected)`
+		return nextPromise;
 
 	}
 
@@ -363,7 +373,7 @@ module.exports = (function(global) {
 	Promise.reject = reject;
 
 	Promise.prototype.then = function(onFulfillment, onRejection) {
-		return then(this.enhancedPromise, onFulfillment, onRejection);
+		return then(registry.getEnhanced(this), onFulfillment, onRejection);
 	}
 
 	return { 
