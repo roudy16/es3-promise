@@ -11,13 +11,74 @@ module.exports = (function(global) {
 	function isFulfilled(promise) { return promise.state === FULFILLED; }
 	function isRejected(promise) { return promise.state === REJECTED; }
 
-	function log(label, obj) {
-		console.log("--------------------------------")
-		console.log(label + "..." + "\n")
-		for (var key in obj) 
-			if (obj.hasOwnProperty(key))
-				console.log(key, obj[key])
-		console.log("\n")
+	// Promise Resolution Procedure [[Resolve]](promise2, x)
+	function prp(enhancedPromise, x) {
+
+		// 2.3.1: If `promise` and `x` refer to the same 
+		// object, reject `promise` with a `TypeError' as 
+		// the reason.
+		if (enhancedPromise.promise === x) {
+			rejectFn(enhancedPromise)(new TypeError(
+				'The result of a then execution cannot be the promise itself.'
+			));
+			return;
+		}
+
+		// 2.3.3: Otherwise, if `x` is an object or function,
+		if (x && (typeof x === 'object' || typeof x === 'function')) {
+
+			// 2.3.3.3.3: If both `resolvePromise` and `rejectPromise` are 
+			// called, or multiple calls to the same argument are made, the 
+			// first call takes precedence, and any further calls are ignored.
+			var called = false;
+
+			try {
+
+				// 2.3.3.1: Let `then` be `x.then`
+				var then = x.then;
+
+				// 2.3.3.3: If `then` is a function, call it 
+				// with `x` as `this`, 
+				// first argument `resolvePromise`, 
+				// and second argument `rejectPromise`
+				if (typeof then === 'function') {
+					then.apply(x, [
+						function(value) {
+							if (!called) {
+								called = true;
+								prp(enhancedPromise, value);	
+							}
+						}, 
+						function(reason) {
+							if (!called) {
+								called = true;
+								rejectFn(enhancedPromise)(reason);
+							}
+						}
+					]);
+
+				} else {
+					// 2.3.3.4: If `then` is not a function, fulfill promise 
+					// with `x`
+					resolveFn(enhancedPromise)(x); 
+				}
+
+			} catch(err) {
+				// 2.3.3.2: If retrieving the property `x.then` 
+				// results in a thrown exception `e`, reject 
+				// `promise` with `e` as the reason.
+				if (!called) {
+					called = true;
+					rejectFn(enhancedPromise)(err);
+				}
+			}
+			
+		} else {
+			// 2.3.4: If `x` is not an object or function, fulfill `promise` 
+			// with `x`
+			resolveFn(enhancedPromise)(x); 
+		}
+	
 	}
 
 	function cleanThen(enhancedPromise, enhancedState) {
@@ -93,57 +154,16 @@ module.exports = (function(global) {
 
 						// 2.2.6.1 : multiple fulfillment handlers, one of which throws
 						// need a try catch block
-						var x;
+
 						try {
+
+							var x;
 
 							x = callback.apply(undefined, [ data ]);
 
-							// 2.3.1: If `promise` and `x` refer to the same 
-							// object, reject `promise` with a `TypeError' as 
-							// the reason.
-							if (nextEnhancedPromise.promise === x) {
-								rejectFn(nextEnhancedPromise)(new TypeError(
-									'The result of a then execution cannot be the promise itself.'
-								));
-								return;
-							}
-
-							// 2.3.2: If `x` is a promise, adopt its state
-							if (x instanceof Promise) {
-								// 2.3.2.1: If `x` is pending, `promise` must 
-								// remain pending until `x` is fulfilled or 
-								// rejected.
-								x.then(
-									// 2.3.2.2: If/when `x` is fulfilled, 
-									// fulfill `promise` with the same value.
-									function(value) {
-										resolveFn(nextEnhancedPromise)(value)
-									}, 
-									// 2.3.2.3: If/when `x` is rejected, 
-									// reject `promise` with the same reason.
-									function(reason) {
-										rejectFn(nextEnhancedPromise)(reason);
-									}
-								);
-								return;
-							}
-
-							if (x.then) {
-								console.log(x)
-								console.log(x.then.toString())
-								x.then.apply(x, [
-									function(value) {
-										console.log(value)
-										resolveFn(nextEnhancedPromise)(value)
-									}, 
-									function(reason) {
-										rejectFn(nextEnhancedPromise)(reason);
-									}
-								]);
-								return;
-							}
-							
-							resolveFn(nextEnhancedPromise)(x); 
+							// run the Promise Resolution Procedure 
+							// [[Resolve]](promise2, x)
+							prp(nextEnhancedPromise, x);
 
 						} catch(err) {
 
@@ -252,8 +272,6 @@ module.exports = (function(global) {
 		dataName: 'reason'
 	}
 
-	var id = 0;
-
 	function enhancePromise(promise, resolve, reject) {
 
 		return {
@@ -266,9 +284,7 @@ module.exports = (function(global) {
 			// then stack { onFulfillment, nextEnhancedPromise returned by then }
 			onfulfilled : [],
 			// then stack { onRejection, nextEnhancedPromise returned by then }
-			onrejected: [],
-			// incremental id
-			id: ++id
+			onrejected: []
 		};
 
 	}
@@ -298,19 +314,14 @@ module.exports = (function(global) {
 		var reject = undefined;
 
 		var enhancedPromise = enhancePromise(promise, resolve, reject);
-promise.id = enhancedPromise.id;
+
 		resolve = resolveFn(enhancedPromise);
 		reject = rejectFn(enhancedPromise);
-
-		promise.then = function(onFulfillment, onRejection) {
-			return then(enhancedPromise, onFulfillment, onRejection);
-		};
 
 		executor.apply(undefined, [ resolve, reject ]);		
 
 		return enhancedPromise;
 	}
-
 
 	function Promise(executor) {
 
@@ -326,7 +337,7 @@ promise.id = enhancedPromise.id;
 		var reject = undefined;
 
 		var enhancedPromise = this.enhancedPromise = enhancePromise(this, resolve, reject);
-this.id = enhancedPromise.id;
+
 		resolve = resolveFn(enhancedPromise);
 		reject = rejectFn(enhancedPromise);
 
