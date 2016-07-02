@@ -1,8 +1,9 @@
 {
-    "devDependencies": {
-        "promises-aplus-tests": "*"
-    },
-    "scripts": {
-        "test": "promises-aplus-tests test/promise.test.js"
-    }
+  "devDependencies": {
+    "promises-aplus-tests": "*",
+    "uglify-js": "^2.6.4"
+  },
+  "scripts": {
+    "test": "promises-aplus-tests test/promise.test.js"
+  }
 }
