@@ -1,5 +1,6 @@
 ## Promise library targeting ES3
 
+[!["Promises/A+ logo"](https://promisesaplus.com/assets/logo-small.png "Promises/A+ 1.0 compliant")]("https://promisesaplus.com/")
 
 #### Description
 This is simply an implementation of the then function, just for learning.<br />
